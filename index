@@ -1381,7 +1381,16 @@
         const scorePercent = document.getElementById("scorePercent");
 
         function escapeHtml(value) {
-            return String(value).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+            /*
+             * Không dùng String.prototype.replaceAll() vì một số WebView/LMS
+             * và trình duyệt cũ chưa hỗ trợ, làm renderQuestions() dừng hoàn toàn.
+             */
+            return String(value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
         }
         function shuffleArray(array) {
             const copied=[...array];
@@ -1390,7 +1399,15 @@
         }
         function typesetMath() {
             if(window.MathJax && typeof window.MathJax.typesetPromise==="function"){
-                window.MathJax.typesetPromise().catch(error=>console.warn("MathJax không thể hiển thị một số công thức.",error));
+                try {
+                    if (typeof window.MathJax.typesetClear === "function") {
+                        window.MathJax.typesetClear();
+                    }
+                    window.MathJax.typesetPromise()
+                        .catch(error=>console.warn("MathJax không thể hiển thị một số công thức.",error));
+                } catch (error) {
+                    console.warn("MathJax chưa sẵn sàng.", error);
+                }
             }
         }
         function getSavedData() {
@@ -1495,13 +1512,25 @@
 
         const observedSections=document.querySelectorAll("main section[id]");
         const tocLinks=document.querySelectorAll(".toc-link");
-        const observer=new IntersectionObserver(entries=>{
-            const visible=entries.filter(e=>e.isIntersecting).sort((a,b)=>b.intersectionRatio-a.intersectionRatio);
-            if(!visible.length) return;
-            const id=visible[0].target.id;
-            tocLinks.forEach(link=>{const active=link.getAttribute("href")===`#${id}`;link.classList.toggle("active",active);if(active) link.scrollIntoView({behavior:"smooth",inline:"center",block:"nearest"});});
-        },{rootMargin:"-20% 0px -63% 0px",threshold:[.05,.2,.45]});
-        observedSections.forEach(section=>observer.observe(section));
+        if ("IntersectionObserver" in window) {
+            const observer=new IntersectionObserver(entries=>{
+                const visible=entries.filter(e=>e.isIntersecting).sort((a,b)=>b.intersectionRatio-a.intersectionRatio);
+                if(!visible.length) return;
+                const id=visible[0].target.id;
+                tocLinks.forEach(link=>{
+                    const active=link.getAttribute("href")===`#${id}`;
+                    link.classList.toggle("active",active);
+                    if(active) {
+                        try {
+                            link.scrollIntoView({behavior:"smooth",inline:"center",block:"nearest"});
+                        } catch (error) {
+                            link.scrollIntoView();
+                        }
+                    }
+                });
+            },{rootMargin:"-20% 0px -63% 0px",threshold:[.05,.2,.45]});
+            observedSections.forEach(section=>observer.observe(section));
+        }
 
         const progressFill=document.getElementById("progressFill");
         const backToTop=document.getElementById("backToTop");
@@ -1524,8 +1553,36 @@
         resetButton.addEventListener("click",resetQuiz);
         shuffleButton.addEventListener("click",shuffleQuestions);
 
-        function initializePage(){loadSettings();renderQuestions();updateReadingProgress();updateQuizStatus();window.addEventListener("load",typesetMath);}
-        initializePage();
+        function showQuizLoadError(error) {
+            console.error("Không thể tải câu hỏi củng cố:", error);
+            if (questionsContainer) {
+                questionsContainer.innerHTML = `
+                    <div class="warning-box" style="display:block;">
+                        <strong>Không thể tải câu hỏi.</strong>
+                        <p style="margin:8px 0 0;">
+                            Hãy tải lại trang hoặc mở bằng trình duyệt Chrome, Edge, Firefox hoặc Safari phiên bản mới.
+                        </p>
+                    </div>`;
+            }
+        }
+
+        function initializePage(){
+            try {
+                loadSettings();
+                renderQuestions();
+                updateReadingProgress();
+                updateQuizStatus();
+                window.addEventListener("load",typesetMath);
+            } catch (error) {
+                showQuizLoadError(error);
+            }
+        }
+
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", initializePage, {once:true});
+        } else {
+            initializePage();
+        }
     </script>
 </body>
 </html>
